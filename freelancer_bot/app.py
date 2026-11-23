@@ -374,7 +374,7 @@ class LeadBot:
                     self._wait_until_stopped()
                 )
             else:
-                await self._wait_until_stopped()
+                await self.bot_client.run_until_disconnected()
         finally:
             if background_enabled:
                 if getattr(self, "_profile_discovery_runtime", None) is not None:
@@ -1391,8 +1391,12 @@ class LeadBot:
                 service,
                 logger=LOGGER,
             )
-            self._profile_discovery_runtime = None
-            return
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "telegram.chat_discovery_enabled",
+                note="profile/channel discovery may run alongside chat discovery",
+            )
 
         if getattr(self.config, "source_discovery_enabled", False):
             self._profile_discovery_runtime = TelegramProfileDiscoveryRuntime(

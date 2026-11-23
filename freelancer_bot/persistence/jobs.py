@@ -17,6 +17,17 @@ from .schema import durable_jobs
 
 SAFE_FAILURE_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 
+# Delivery-side work is cheap and user-visible. Prioritizing it keeps leads
+# moving while the AI analyzer works through a long backfill queue.
+DELIVERY_PRIORITY_JOB_TYPES = frozenset(
+    {
+        "opportunity.matching_delivery.v1",
+        "telegram.personalized_delivery.v1",
+        "profile.rematch_recent.v1",
+        "profile.coverage.recheck",
+    }
+)
+
 
 @dataclass(frozen=True)
 class JobClaim:
@@ -122,7 +133,14 @@ class DurableJobRepository:
                     ),
                 )
                 .order_by(
-                    sa.case((durable_jobs.c.state == "running", 0), else_=1),
+                    sa.case(
+                        (durable_jobs.c.state == "running", 0),
+                        (
+                            durable_jobs.c.job_type.in_(DELIVERY_PRIORITY_JOB_TYPES),
+                            1,
+                        ),
+                        else_=2,
+                    ),
                     durable_jobs.c.available_at,
                     durable_jobs.c.created_at,
                     durable_jobs.c.id,

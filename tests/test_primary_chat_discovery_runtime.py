@@ -28,7 +28,7 @@ class PrimaryChatDiscoveryRuntimeTest(unittest.IsolatedAsyncioTestCase):
         bot._chat_discovery_task = None
         return bot
 
-    def test_chat_mode_builds_primary_runtime_from_existing_client_and_governor(self):
+    def test_chat_mode_builds_both_chat_and_profile_runtimes(self):
         bot = self._bot(chat_enabled=True)
 
         with (
@@ -47,9 +47,9 @@ class PrimaryChatDiscoveryRuntimeTest(unittest.IsolatedAsyncioTestCase):
             watch_candidate_callback=ANY,
         )
         runtime.assert_called_once_with(service.return_value, logger=ANY)
-        legacy.assert_not_called()
+        legacy.assert_called_once()
         self.assertIsNotNone(bot._chat_discovery_runtime)
-        self.assertIsNone(bot._profile_discovery_runtime)
+        self.assertIs(legacy.return_value, bot._profile_discovery_runtime)
 
     async def test_chat_watch_wakes_source_discovery_without_waiting_for_interval(self):
         bot = self._bot(chat_enabled=True)
@@ -188,7 +188,7 @@ class PrimaryChatDiscoveryRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         bot._chat_discovery_runtime.request_stop.assert_called_once_with()
 
-    async def test_source_discovery_skips_old_profile_telegram_when_chat_mode_enabled(self):
+    async def test_source_discovery_keeps_profile_telegram_when_chat_mode_enabled(self):
         runtime = AutonomousSourceDiscoveryRuntime.__new__(AutonomousSourceDiscoveryRuntime)
         runtime._config = SimpleNamespace(
             telegram_chat_discovery_enabled=True,
@@ -202,6 +202,7 @@ class PrimaryChatDiscoveryRuntimeTest(unittest.IsolatedAsyncioTestCase):
         with patch(
             "freelancer_bot.source_discovery_runtime.SearchProfileRepository.list_active",
             new_callable=AsyncMock,
+            return_value=[],
         ) as list_active:
             result = await runtime._run_profile_telegram(
                 requested_at=datetime.now(timezone.utc),
@@ -211,7 +212,7 @@ class PrimaryChatDiscoveryRuntimeTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, ())
-        list_active.assert_not_awaited()
+        list_active.assert_awaited_once()
 
     async def test_profile_topics_use_buyer_intent_queries_not_raw_profile_terms(self):
         intent = SimpleNamespace(

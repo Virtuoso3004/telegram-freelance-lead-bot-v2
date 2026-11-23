@@ -111,14 +111,10 @@ class CollectorOnlyRuntime:
                 "runtime.started",
                 runtime_mode="collector_only",
                 collector_account_id=self.collector_account_id,
-                source_discovery_enabled=(
-                    self.config.source_discovery_enabled
-                    and not self.config.telegram_chat_discovery_enabled
-                ),
+                source_discovery_enabled=self.config.source_discovery_enabled,
                 source_audit_enabled=(
                     self.config.source_audit_enabled
                     and source_audit_provider_available
-                    and not self.config.telegram_chat_discovery_enabled
                 ),
                 source_audit_provider=self.config.source_audit_provider,
                 source_audit_model=self.config.source_audit_model,
@@ -146,7 +142,7 @@ class CollectorOnlyRuntime:
                 self._chat_discovery_task = asyncio.create_task(
                     self.chat_discovery_runtime.run()
                 )
-            if self.config.source_discovery_enabled and not self.config.telegram_chat_discovery_enabled:
+            if self.config.source_discovery_enabled:
                 self.profile_discovery_runtime = TelegramProfileDiscoveryRuntime(
                     self.database,
                     self.config,

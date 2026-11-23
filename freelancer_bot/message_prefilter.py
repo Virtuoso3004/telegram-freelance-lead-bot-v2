@@ -41,6 +41,136 @@ class PrefilterDecision(str, Enum):
 class PrefilterReason(str, Enum):
     EMPTY_CONTENT = "empty_content"
     SERVICE_EVENT = "service_event"
+    FREELANCE_EXCHANGE = "freelance_exchange"
+    VACANCY = "vacancy"
+
+
+# Marketplace orders are low-quality leads: the poster is usually a repost bot
+# rather than the customer, and the work is already open to all comers. Reject
+# them before the paid analyzer so they never reach matching or delivery.
+_EXCHANGE_CONTENT_MARKERS = (
+    "kwork",
+    "кворк",
+    "freelancehunt",
+    "фрилансхант",
+    "fl.ru",
+    "фл.ру",
+    "freelance.ru",
+    "фриланс.ру",
+    "workzilla",
+    "воркзилла",
+    "youdo",
+    "profi.ru",
+    "профи.ру",
+    "upwork",
+    "апворк",
+    "toptal",
+    "биржа фриланса",
+    "биржа фрилансеров",
+    "биржа заказов",
+    "биржа проектов",
+    # Repost feeds label the marketplace explicitly, sometimes without the TLD.
+    "площадка: fl",
+    "площадка: youdo",
+    "площадка: kwork",
+    "площадка: freelancehunt",
+    "площадка: workzilla",
+    "площадка: profi",
+    "площадка: upwork",
+    "площадка: habr",
+)
+
+_EXCHANGE_SOURCE_MARKERS = (
+    "kwork",
+    "freelancehunt",
+    "freelance_dev_work",
+    "fl_ru",
+    "workzilla",
+    "youdo",
+    "profi_ru",
+)
+
+
+# Employment posts are explicitly listed as stop-words in config/filters.json,
+# but the durable pipeline never consulted that file. Apply the same intent
+# here, while preserving one-off orders that are sometimes labelled "вакансия".
+_VACANCY_WORD_MARKERS = (
+    "вакансия",
+    "вакансии",
+    "#vacancy",
+    "#вакансия",
+    "#вакансии",
+)
+
+_PERMANENT_EMPLOYMENT_MARKERS = (
+    "полная занятость",
+    "полный день в офисе",
+    "полный день",
+    "график 5/2",
+    "зарплатная вилка",
+    "зарплата",
+    "оклад",
+    "рекрутинг",
+    "рекрутер",
+    "рекрутеры",
+    "в штат",
+    "трудоустройство",
+    "трудоустройства",
+    "стажировка",
+    "стажер",
+    "без опыта",
+    "ищем в команду",
+    "в команду надолго",
+    "приглашаем в команду",
+    "ищем сильного",
+    "нужен человек",
+    "ищем сотрудника",
+    "удаленная работа",
+    "гибкий график",
+    "что предстоит делать",
+    "будет плюсом",
+    "на постоянной основе",
+    "постоянная",
+    "основная занятость",
+    "оформление по ип",
+    "фикс от",
+    "график с 1",
+    "соцпакет",
+    "резюме",
+)
+
+# A one-off order can still use the word "вакансия". Keep those leads.
+_ONEOFF_ORDER_MARKERS = (
+    "разов",
+    "на конкретную задачу",
+    "оплата договорная",
+    "подрядчик",
+    "исполнител",
+    "бюджет",
+    "почас",
+    "сдельно",
+    "на аутсорс",
+    "аутсорс",
+    "проект удален",
+    "срочно нужен",
+    "оплата после сдачи",
+    "выполнить нужно",
+    "дедлайн",
+)
+
+_VACANCY_SOURCE_MARKERS = (
+    "freevacanciesit",
+    "workayte",
+)
+
+
+def _exchange_normalized(value: str) -> str:
+    return " ".join(
+        unicodedata.normalize("NFKC", value)
+        .casefold()
+        .replace("ё", "е")
+        .split()
+    )
 
 
 @dataclass(frozen=True)
@@ -105,6 +235,28 @@ class CheapMessagePrefilter:
             return PrefilterEvaluation(
                 PrefilterDecision.REJECTED,
                 (PrefilterReason.EMPTY_CONTENT,),
+            )
+        content = _exchange_normalized(message.content)
+        source = _exchange_normalized(message.external_source_id)
+        if any(marker in content for marker in _EXCHANGE_CONTENT_MARKERS) or any(
+            marker in source for marker in _EXCHANGE_SOURCE_MARKERS
+        ):
+            return PrefilterEvaluation(
+                PrefilterDecision.REJECTED,
+                (PrefilterReason.FREELANCE_EXCHANGE,),
+            )
+        permanent = any(
+            marker in content for marker in _PERMANENT_EMPLOYMENT_MARKERS
+        )
+        vacancy_word = any(marker in content for marker in _VACANCY_WORD_MARKERS)
+        oneoff = any(marker in content for marker in _ONEOFF_ORDER_MARKERS)
+        vacancy_source = any(
+            marker in source for marker in _VACANCY_SOURCE_MARKERS
+        )
+        if permanent or vacancy_source or (vacancy_word and not oneoff):
+            return PrefilterEvaluation(
+                PrefilterDecision.REJECTED,
+                (PrefilterReason.VACANCY,),
             )
         return PrefilterEvaluation(PrefilterDecision.PASSED)
 

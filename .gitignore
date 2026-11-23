@@ -32,6 +32,8 @@ sessions/*.lock
 *.session-journal
 freelancer_profile.json
 *.log
+.local_db/
+.local_supervisor.lock
 
 # Local secret previews and operator exports must never enter a publication tree.
 .env.safe-view

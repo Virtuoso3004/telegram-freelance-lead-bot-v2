@@ -33,11 +33,15 @@ class Database:
                 "PostgreSQL database URL must use postgresql+psycopg://"
             )
 
+        # The local PGlite socket multiplexer shares one backend between
+        # connections, so psycopg's per-connection prepared statement names
+        # can collide. Disabling automatic preparation keeps local runs stable.
         self._engine: AsyncEngine = create_async_engine(
             url,
             pool_pre_ping=True,
             pool_size=pool_size,
             max_overflow=max_overflow,
+            connect_args={"prepare_threshold": None},
         )
 
     @property
