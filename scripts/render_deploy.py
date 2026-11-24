@@ -57,7 +57,15 @@ def request(
 
 
 def unwrap(items: Any) -> list[dict[str, Any]]:
-    return [item.get("service", item) if isinstance(item, dict) else item for item in items or []]
+    result: list[dict[str, Any]] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            for wrapper in ("service", "postgres", "owner"):
+                if wrapper in item:
+                    item = item[wrapper]
+                    break
+        result.append(item)
+    return result
 
 
 def local_env() -> dict[str, str]:
