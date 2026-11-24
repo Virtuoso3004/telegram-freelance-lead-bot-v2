@@ -666,6 +666,12 @@ class OpenAICompatibleOpportunityAnalyzer:
                 retryable=True,
                 error_code="provider_request_failed",
             ) from None
+        except TimeoutError:
+            raise OpportunityAnalysisError(
+                f"{self.provider} opportunity-analysis request timed out",
+                retryable=True,
+                error_code="provider_timeout",
+            ) from None
 
 
 class OpenAIOpportunityAnalyzer(OpenAICompatibleOpportunityAnalyzer):
@@ -763,6 +769,190 @@ def _default_opportunity_provider_url(provider: str) -> str:
     return TOKENROUTER_CHAT_COMPLETIONS_URL
 
 
+class HeuristicOpportunityAnalyzer:
+    """Deterministic last-resort route for prefiltered messages.
+
+    Anonymous free model endpoints can fail with 429, time out or return
+    malformed JSON.  A message that already passed the cheap prefilter should
+    not vanish because every remote route failed at the same moment.  This
+    route performs no network calls and produces deliberately conservative,
+    grounded fields.
+    """
+
+    _BUYER_MARKERS = (
+        "нужен", "нужна", "нужно", "нужны", "ищу", "ищем", "подрядчик",
+        "исполнител", "заказ", "задача", "сделать", "сделать", "разработать",
+        "сверстать", "написать", "бюджет", "оплата", "стоимость", "срок",
+        "кто может", "предложение", "hire", "looking for", "need a",
+        "ищу специалиста", "требуется",
+    )
+    _SELF_PROMO_MARKERS = (
+        "ищу заказ", "ищу заказы", "ищу проекты", "ищу работу", "ищу вакансию",
+        "предлагаю услуги", "готов выполнить", "готова выполнить", "резюме",
+        "портфолио", "мои работы", "свои услуги", "open to work",
+    )
+    _DOMAIN_RULES = (
+        (
+            ("telegram", "бот", "bot"),
+            "Telegram bot development",
+            "Telegram Bot Developer",
+            ("Telegram Bot API",),
+        ),
+        (
+            ("сайт", "лендинг", "website", "landing", "wordpress", "tilda"),
+            "web development",
+            "Web Developer",
+            ("Website",),
+        ),
+        (
+            ("дизайн", "figma", "ui/ux", "design"),
+            "web design",
+            "UI/UX Designer",
+            ("Figma",),
+        ),
+        (
+            ("seo", "смм", "smm", "реклам", "маркетинг", "target"),
+            "digital marketing",
+            "Marketing Specialist",
+            ("Marketing",),
+        ),
+        (
+            ("видео", "reels", "montage", "монтаж"),
+            "video editing",
+            "Video Editor",
+            ("Video Editing",),
+        ),
+        (
+            ("python", "api", "интеграц", "автоматизац", "backend"),
+            "software development",
+            "Software Developer",
+            ("Python",),
+        ),
+    )
+
+    def __init__(self, primary: OpportunityAnalyzer) -> None:
+        self._analyzer_version = primary.analyzer_version
+        self._prompt_version = primary.prompt_version
+        self._schema_version = primary.schema_version
+
+    @property
+    def provider(self) -> str:
+        return "heuristic"
+
+    @property
+    def model(self) -> str:
+        return "rule-based.v1"
+
+    @property
+    def analyzer_version(self) -> str:
+        return self._analyzer_version
+
+    @property
+    def prompt_version(self) -> str:
+        return self._prompt_version
+
+    @property
+    def schema_version(self) -> str:
+        return self._schema_version
+
+    async def analyze(
+        self,
+        candidate: MinimalAnalyzerInput,
+    ) -> OpportunityAnalysisCall:
+        content = "\n".join(
+            part
+            for part in (
+                candidate.current.content,
+                None if candidate.parent is None else candidate.parent.content,
+            )
+            if part
+        )
+        lowered = content.casefold()
+        self_promo = any(marker in lowered for marker in self._SELF_PROMO_MARKERS)
+        buyer = any(marker in lowered for marker in self._BUYER_MARKERS)
+        is_opportunity = buyer and not self_promo
+        category = "other"
+        role_title = "specialist"
+        skills: tuple[str, ...] = ()
+        for keywords, rule_category, rule_role, rule_skills in self._DOMAIN_RULES:
+            if any(keyword in lowered for keyword in keywords):
+                category = rule_category
+                role_title = rule_role
+                skills = rule_skills
+                break
+        summary = " ".join(content.split())[:300] or None
+        language = "ru" if re.search(r"[А-Яа-яЁё]", content) else "en"
+        analysis = OpportunityAnalysis(
+            schema_version=OPPORTUNITY_ANALYSIS_SCHEMA_VERSION,
+            is_opportunity=is_opportunity,
+            confidence=0.35,
+            market_direction=(
+                MarketDirection.BUYER_TO_SPECIALIST
+                if is_opportunity
+                else MarketDirection.SPECIALIST_TO_BUYER
+            ),
+            intent_stage=IntentStage.ACTIVE if is_opportunity else IntentStage.NONE,
+            opportunity_type=(
+                OpportunityType.PROJECT
+                if "проект" in lowered and is_opportunity
+                else (
+                    OpportunityType.ONE_OFF_ORDER
+                    if is_opportunity
+                    else OpportunityType.UNKNOWN
+                )
+            ),
+            category=category,
+            role_title=role_title,
+            skills=skills,
+            task_summary=summary,
+            budget=OpportunityBudget(
+                known=False,
+                min=None,
+                max=None,
+                currency=None,
+                period=None,
+                explicit=False,
+            ),
+            work=OpportunityWork(
+                remote=None,
+                location=None,
+                full_time=None,
+                part_time=None,
+            ),
+            language=language,
+            contact=OpportunityContact(
+                telegram=None,
+                email=None,
+                url=None,
+            ),
+            quality=OpportunityQuality(
+                actionability=0.6,
+                commercial_plausibility=0.6,
+                specificity=0.4,
+                credibility=0.6,
+            ),
+            red_flags=(),
+        )
+        return OpportunityAnalysisCall(
+            analysis=analysis,
+            provider=self.provider,
+            requested_model=self.model,
+            response_model=self.model,
+            analyzer_version=self._analyzer_version,
+            prompt_version=self._prompt_version,
+            schema_version=self._schema_version,
+            attempt_count=1,
+            usage=OpportunityAnalysisUsage(
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+            ),
+            stage="opportunity_analysis.heuristic",
+            routing_version=OPPORTUNITY_ROUTING_VERSION,
+            route_reason="heuristic_fallback",
+        )
+
+
 class RoutedOpportunityAnalyzer:
     def __init__(
         self,
@@ -771,17 +961,27 @@ class RoutedOpportunityAnalyzer:
         *,
         confidence_threshold: float = 0.65,
         routing_version: str = OPPORTUNITY_ROUTING_VERSION,
+        extra_fallbacks: tuple[OpportunityAnalyzer, ...] = (),
+        heuristic: OpportunityAnalyzer | None = None,
     ) -> None:
         if primary.schema_version != OPPORTUNITY_ANALYSIS_SCHEMA_VERSION:
             raise ValueError("primary analyzer uses an unsupported schema")
-        if fallback is not None and (
-            fallback.analyzer_version != primary.analyzer_version
-            or fallback.prompt_version != primary.prompt_version
-            or fallback.schema_version != primary.schema_version
-        ):
-            raise ValueError("fallback analyzer must use the same contract versions")
+        for route in (fallback, *extra_fallbacks, heuristic):
+            if route is not None and (
+                route.analyzer_version != primary.analyzer_version
+                or route.prompt_version != primary.prompt_version
+                or route.schema_version != primary.schema_version
+            ):
+                raise ValueError("fallback analyzer must use the same contract versions")
         self._primary = primary
         self._fallback = fallback
+        self._extra_fallbacks = tuple(extra_fallbacks)
+        self._heuristic = heuristic
+        self._secondary_routes = tuple(
+            route
+            for route in (fallback, *extra_fallbacks, heuristic)
+            if route is not None
+        )
         self._confidence_threshold = _bounded_ratio(
             confidence_threshold,
             "confidence_threshold",
@@ -823,50 +1023,75 @@ class RoutedOpportunityAnalyzer:
     def compatible_cache_versions(self) -> frozenset[str]:
         return frozenset({opportunity_analysis_cache_version(self._primary)})
 
+    def _finalize(
+        self,
+        call: OpportunityAnalysisCall,
+        reason: str,
+    ) -> OpportunityAnalysisCall:
+        return replace(
+            call,
+            routing_version=self._routing_version,
+            route_reason=reason,
+        )
+
+    @staticmethod
+    def _retryable(error: BaseException) -> bool:
+        if isinstance(error, TimeoutError):
+            return True
+        return isinstance(error, OpportunityAnalysisError) and error.retryable
+
+    async def _try_secondary(
+        self,
+        candidate: MinimalAnalyzerInput,
+        first_reason: str,
+    ) -> tuple[OpportunityAnalysisCall | None, bool]:
+        budget_exhausted = False
+        for index, route in enumerate(self._secondary_routes):
+            if route is self._heuristic:
+                reason = "heuristic_fallback"
+            elif index == 0:
+                reason = first_reason
+            else:
+                reason = "degraded_fallback"
+            try:
+                call = await route.analyze(candidate)
+            except AIBudgetExceeded:
+                budget_exhausted = True
+                continue
+            except (OpportunityAnalysisError, TimeoutError):
+                continue
+            return self._finalize(call, reason), budget_exhausted
+        return None, budget_exhausted
+
     async def analyze(self, candidate: MinimalAnalyzerInput) -> OpportunityAnalysisCall:
         try:
             primary = await self._primary.analyze(candidate)
-        except OpportunityAnalysisError as error:
-            status = error.http_status
-            if (
-                self._fallback is None
-                or status is None
-                or not (status == 429 or status >= 500)
-            ):
+        except (OpportunityAnalysisError, TimeoutError) as error:
+            if not self._retryable(error):
                 raise
-            try:
-                emergency = await self._fallback.analyze(candidate)
-            except AIBudgetExceeded:
-                raise error from None
-            return replace(
-                emergency,
-                routing_version=self._routing_version,
-                route_reason="primary_rate_limited_fallback",
+            result, _ = await self._try_secondary(
+                candidate,
+                "primary_failed_fallback",
             )
+            if result is not None:
+                return result
+            raise
         if (
-            self._fallback is None
+            not self._secondary_routes
             or primary.analysis.confidence >= self._confidence_threshold
         ):
-            return replace(
-                primary,
-                routing_version=self._routing_version,
-                route_reason="primary_confident",
-            )
-        try:
-            fallback = await self._fallback.analyze(candidate)
-        except AIBudgetExceeded:
-            # The stronger route is optional work. Preserve the successful
-            # primary result when a configured spend guard suspends it, so a
-            # budget boundary never blocks critical opportunity processing.
-            return replace(
-                primary,
-                routing_version=self._routing_version,
-                route_reason="fallback_budget_exhausted",
-            )
-        return replace(
-            fallback,
-            routing_version=self._routing_version,
-            route_reason="low_confidence_fallback",
+            return self._finalize(primary, "primary_confident")
+        result, budget_exhausted = await self._try_secondary(
+            candidate,
+            "low_confidence_fallback",
+        )
+        if result is not None:
+            return result
+        # The stronger route is optional work. Preserve a successful primary
+        # result when every secondary route is unavailable or out of budget.
+        return self._finalize(
+            primary,
+            "fallback_budget_exhausted" if budget_exhausted else "fallback_unavailable",
         )
 
     def accepts_call(self, call: OpportunityAnalysisCall) -> bool:
@@ -895,8 +1120,7 @@ class RoutedOpportunityAnalyzer:
             and analyzer_version == route.analyzer_version
             and prompt_version == route.prompt_version
             and schema_version == route.schema_version
-            for route in (self._primary, self._fallback)
-            if route is not None
+            for route in (self._primary, *self._secondary_routes)
         ) and routing_version == self._routing_version
 
 

@@ -24,6 +24,7 @@ from .opportunity_analysis import (
     OPPORTUNITY_ANALYSIS_SCHEMA_VERSION,
     OPPORTUNITY_ANALYZER_VERSION,
     OpenAICompatibleOpportunityAnalyzer,
+    HeuristicOpportunityAnalyzer,
     OpportunityAnalysisError,
     OpportunityAnalysisProviderUnavailable,
     OpportunityAnalyzer,
@@ -271,11 +272,60 @@ def _configured_analyzer(
                 ),
             ),
         )
+    extra_fallbacks: list[OpportunityAnalyzer] = []
+    extra_models = tuple(
+        item.strip()
+        for item in config.opportunity_analysis_extra_fallback_models.split(",")
+        if item.strip()
+    )
+    if extra_models:
+        try:
+            extra_settings = resolve_opportunity_analysis_provider(
+                config,
+                fallback=True,
+            )
+        except OpportunityAnalysisProviderUnavailable as exc:
+            raise OpportunityAnalysisError(
+                "Configured Opportunity Analysis extra fallback provider is "
+                f"unavailable: {exc}",
+                retryable=False,
+                error_code="extra_fallback_provider_unconfigured",
+            ) from None
+        for index, model in enumerate(extra_models, start=2):
+            extra_fallbacks.append(
+                OpenAICompatibleOpportunityAnalyzer(
+                    api_key=extra_settings.api_key,
+                    api_key_name=extra_settings.api_key_name,
+                    model=model,
+                    temperature=config.opportunity_analysis_temperature,
+                    timeout_seconds=config.opportunity_analysis_timeout_seconds,
+                    max_output_attempts=config.opportunity_analysis_max_output_attempts,
+                    base_url=extra_settings.base_url,
+                    provider=extra_settings.name,
+                    analyzer_version=OPPORTUNITY_ANALYZER_VERSION,
+                    prompt_version=OPPORTUNITY_ANALYSIS_PROMPT_VERSION,
+                    recorder=recorder,
+                    stage=f"opportunity_analysis.fallback_{index}",
+                    routing_version=config.opportunity_analysis_routing_version,
+                    route_reason="degraded_fallback",
+                    price=AIModelPrice(
+                        pricing_version=config.opportunity_analysis_pricing_version,
+                        input_usd_per_million=(
+                            config.opportunity_analysis_fallback_input_usd_per_million
+                        ),
+                        output_usd_per_million=(
+                            config.opportunity_analysis_fallback_output_usd_per_million
+                        ),
+                    ),
+                )
+            )
     return RoutedOpportunityAnalyzer(
         primary,
         fallback,
         confidence_threshold=config.opportunity_analysis_confidence_threshold,
         routing_version=config.opportunity_analysis_routing_version,
+        extra_fallbacks=tuple(extra_fallbacks),
+        heuristic=HeuristicOpportunityAnalyzer(primary),
     )
 
 

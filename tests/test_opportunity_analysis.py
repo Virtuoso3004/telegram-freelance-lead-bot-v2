@@ -27,6 +27,7 @@ from freelancer_bot.opportunity_analysis import (
     OpportunityAnalysisOutputError,
     OpportunityAnalysisUsage,
     OpportunityAnalyzer,
+    HeuristicOpportunityAnalyzer,
     RoutedOpportunityAnalyzer,
     opportunity_analysis_cache_version,
     opportunity_analysis_provider_available,
@@ -1124,6 +1125,100 @@ def _extracted_payload(
         contact=contact,
     )
     return payload
+
+
+class FailingOpportunityAnalyzer:
+    analyzer_version = OPPORTUNITY_ANALYZER_VERSION
+    prompt_version = OPPORTUNITY_ANALYSIS_PROMPT_VERSION
+    schema_version = OPPORTUNITY_ANALYSIS_SCHEMA_VERSION
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        self.calls: list[MinimalAnalyzerInput] = []
+
+    @property
+    def provider(self) -> str:
+        return "fixture-failing"
+
+    @property
+    def model(self) -> str:
+        return "fixture-failing-model"
+
+    async def analyze(self, candidate: MinimalAnalyzerInput) -> OpportunityAnalysisCall:
+        self.calls.append(candidate)
+        raise self.error
+
+
+class RoutedDegradedAnalysisTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rate_limited_routes_continue_to_next_fallback(self):
+        primary = FailingOpportunityAnalyzer(
+            OpportunityAnalysisError("429", http_status=429)
+        )
+        fallback = FailingOpportunityAnalyzer(
+            OpportunityAnalysisError("429", http_status=429)
+        )
+        extra = FakeOpportunityAnalyzer(_analysis_with_confidence(0.90))
+        extra.model = "fixture-extra-model"
+
+        result = await RoutedOpportunityAnalyzer(
+            primary,
+            fallback,
+            extra_fallbacks=(extra,),
+        ).analyze(_candidate())
+
+        self.assertEqual(result.route_reason, "degraded_fallback")
+        self.assertEqual(result.requested_model, "fixture-extra-model")
+        self.assertEqual(len(primary.calls), 1)
+        self.assertEqual(len(fallback.calls), 1)
+        self.assertEqual(len(extra.calls), 1)
+
+    async def test_timeout_on_primary_uses_fallback(self):
+        primary = FailingOpportunityAnalyzer(TimeoutError("read timed out"))
+        fallback = FakeOpportunityAnalyzer(_analysis_with_confidence(0.90))
+
+        result = await RoutedOpportunityAnalyzer(primary, fallback).analyze(
+            _candidate()
+        )
+
+        self.assertEqual(result.route_reason, "primary_failed_fallback")
+        self.assertEqual(result.requested_model, fallback.model)
+
+    async def test_heuristic_route_keeps_prefiltered_buyer_demand(self):
+        primary = FailingOpportunityAnalyzer(
+            OpportunityAnalysisError("429", http_status=429)
+        )
+        candidate = _candidate(
+            current_content=(
+                "Нужен разработчик Telegram-бота для записи клиентов. "
+                "Бюджет 30000 руб."
+            )
+        )
+
+        result = await RoutedOpportunityAnalyzer(
+            primary,
+            None,
+            heuristic=HeuristicOpportunityAnalyzer(primary),
+        ).analyze(candidate)
+
+        self.assertEqual(result.route_reason, "heuristic_fallback")
+        self.assertTrue(result.analysis.is_opportunity)
+        self.assertEqual(result.analysis.category, "Telegram bot development")
+        self.assertEqual(result.usage.total_tokens, 0)
+
+    async def test_heuristic_route_rejects_self_promotion(self):
+        primary = FailingOpportunityAnalyzer(TimeoutError("read timed out"))
+        candidate = _candidate(
+            current_content="Предлагаю услуги разработчика. Моё портфолио в Telegram."
+        )
+
+        result = await RoutedOpportunityAnalyzer(
+            primary,
+            None,
+            heuristic=HeuristicOpportunityAnalyzer(primary),
+        ).analyze(candidate)
+
+        self.assertFalse(result.analysis.is_opportunity)
+        self.assertEqual(result.analysis.intent_stage.value, "none")
 
 
 if __name__ == "__main__":

@@ -331,6 +331,12 @@ class RuntimeConfig(BaseSettings):
         min_length=1,
         max_length=128,
     )
+    opportunity_analysis_extra_fallback_models: str = classified_field(
+        "",
+        sensitivity=Sensitivity.PUBLIC,
+        validation_alias="OPPORTUNITY_ANALYSIS_EXTRA_FALLBACK_MODELS",
+        max_length=512,
+    )
     opportunity_analysis_confidence_threshold: float = classified_field(
         0.65,
         sensitivity=Sensitivity.PUBLIC,
