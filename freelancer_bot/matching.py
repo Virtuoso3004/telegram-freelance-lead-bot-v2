@@ -68,6 +68,145 @@ _GENERIC_SKILL_CONCEPTS = _ROLE_FAMILY_CONCEPTS | frozenset(
         "stack",
     }
 )
+_STRONG_PROGRAMMING_MARKERS = frozenset(
+    {
+        " developer",
+        " разработчик",
+        "программист",
+        "programmer",
+        "software",
+        "python",
+        "javascript",
+        "typescript",
+        " java",
+        "kotlin",
+        "swift",
+        "golang",
+        "rust",
+        "php",
+        "ruby",
+        "c++",
+        "c#",
+        " sql",
+        "postgres",
+        "mysql",
+        "mongodb",
+        "react",
+        "vue",
+        "angular",
+        "node.js",
+        "django",
+        "fastapi",
+        "spring",
+        "laravel",
+        "frontend",
+        "фронтенд",
+        "backend",
+        "бэкенд",
+        "fullstack",
+        "full-stack",
+        "devops",
+        "sre",
+        "data engineer",
+        "ml engineer",
+        "machine learning engineer",
+        "ai agent",
+        " ai-агент",
+        "нейро",
+        "llm",
+        " gpt",
+        "no-code",
+        "low-code",
+        "automation",
+        "автоматизац",
+        "integration",
+        "интеграц",
+        " api",
+        "микросервис",
+        "microservice",
+        "mobile developer",
+        "android",
+        "ios",
+        "flutter",
+        "wordpress",
+        "tilda",
+        "1с",
+        "1c",
+        "скрипт",
+        "парсер",
+        "веб-разработ",
+        "web development",
+        "telegram bot",
+        "бот-разработ",
+    }
+)
+_WEAK_PROGRAMMING_MARKERS = frozenset(
+    {
+        "сайт",
+        "лендинг",
+        "приложение",
+        " application",
+        "система",
+        "платформа",
+        "телеграм-бот",
+        "telegram",
+        " бот",
+        "база данных",
+        "database",
+        "crm",
+        "mvp",
+        "saas",
+        "стартап",
+        "проект",
+    }
+)
+_NON_PROGRAMMING_MARKERS = frozenset(
+    {
+        "seo",
+        "smm",
+        "маркетинг",
+        "market",
+        "реклам",
+        "таргет",
+        "дизайн",
+        "design",
+        "figma",
+        "ui/ux",
+        "видео",
+        "reels",
+        "монтаж",
+        "контент",
+        "copywriting",
+        "копирайтер",
+        "перевод",
+        "sales",
+        "продаж",
+        "поддерж",
+        "support",
+        "рекрутинг",
+        "бухгалтер",
+        "юрист",
+        "фотограф",
+        "фото",
+        "иллюстрац",
+        "озвучк",
+        "диктор",
+        "презентац",
+        "excel",
+        "отчет",
+        "отчёт",
+        "репетитор",
+        "курс",
+        "обучение",
+        "психолог",
+        "здоровье",
+        "спорт",
+        "строительств",
+        "ремонт",
+        "логистик",
+        "курьер",
+    }
+)
 
 
 class HardFilterCode(str, Enum):
@@ -81,6 +220,7 @@ class HardFilterCode(str, Enum):
     WORK_MODE_MISMATCH = "work_mode_mismatch"
     BUDGET_NOT_EXPLICIT = "budget_not_explicit"
     BUDGET_BELOW_MINIMUM = "budget_below_minimum"
+    NON_PROGRAMMING_TOPIC = "non_programming_topic"
 
 
 class UnknownMatchField(str, Enum):
@@ -230,6 +370,40 @@ class StructuredScoringResult:
     scores: tuple[StructuredCandidateScore, ...]
 
 
+def _is_programming_analysis(analysis: OpportunityAnalysis) -> bool:
+    """Keep delivery focused on software work, not adjacent marketing gigs."""
+    labels = " " + " ".join(
+        item
+        for item in (
+            analysis.category,
+            analysis.role_title,
+            *analysis.skills,
+        )
+        if item
+    ).casefold() + " "
+    text = " " + " ".join(
+        item
+        for item in (
+            analysis.category,
+            analysis.role_title,
+            *analysis.skills,
+            analysis.task_summary,
+        )
+        if item
+    ).casefold() + " "
+    if not text.strip():
+        # Without semantic input there is no evidence of a non-programming
+        # topic; leave the existing degraded/unavailable-input path to decide.
+        return True
+    strong_label = any(marker in labels for marker in _STRONG_PROGRAMMING_MARKERS)
+    strong = any(marker in text for marker in _STRONG_PROGRAMMING_MARKERS)
+    weak = any(marker in text for marker in _WEAK_PROGRAMMING_MARKERS)
+    adjacent = any(marker in text for marker in _NON_PROGRAMMING_MARKERS)
+    if adjacent and not strong_label:
+        return False
+    return strong or weak
+
+
 def evaluate_hard_filters(
     opportunity: CanonicalOpportunityRecord,
     profile: SearchProfileRecord,
@@ -253,6 +427,13 @@ def evaluate_hard_filters(
         is not SearchProfileConfirmationStatus.CONFIRMED
     ):
         failures.append(_failure(HardFilterCode.PROFILE_NOT_CONFIRMED, None))
+    if not _is_programming_analysis(analysis):
+        failures.append(
+            _failure(
+                HardFilterCode.NON_PROGRAMMING_TOPIC,
+                analysis.category or analysis.role_title,
+            )
+        )
 
     profile_type = _profile_opportunity_type(analysis.opportunity_type)
     if analysis.opportunity_type is AnalysisType.UNKNOWN:

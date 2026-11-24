@@ -44,6 +44,45 @@ NOW = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
 
 
 class MatchingHardFilterTest(unittest.TestCase):
+    def test_only_software_topics_reach_delivery(self):
+        profile = _profile()
+
+        bot = _opportunity(
+            analysis=_analysis(
+                category="Telegram bots",
+                role_title="Telegram Bot Developer",
+                skills=("Python",),
+                task_summary="Нужен Telegram-бот для записи клиентов",
+            )
+        )
+        self.assertTrue(evaluate_hard_filters(bot, profile).eligible)
+
+        marketing = _opportunity(
+            analysis=_analysis(
+                category="digital marketing",
+                role_title="SMM Specialist",
+                skills=("SMM",),
+                task_summary="Нужен SMM-специалист для ведения соцсетей",
+            )
+        )
+        self.assertEqual(
+            _failure_codes(evaluate_hard_filters(marketing, profile)),
+            {HardFilterCode.NON_PROGRAMMING_TOPIC},
+        )
+
+        design = _opportunity(
+            analysis=_analysis(
+                category="web design",
+                role_title="UI/UX Designer",
+                skills=("Figma",),
+                task_summary="Нужен дизайнер лендинга",
+            )
+        )
+        self.assertEqual(
+            _failure_codes(evaluate_hard_filters(design, profile)),
+            {HardFilterCode.NON_PROGRAMMING_TOPIC},
+        )
+
     def test_unknown_negotiable_and_known_budgets_follow_explicit_policy(self):
         allow_unknown = _profile(
             preferences=_preferences(
@@ -540,6 +579,7 @@ def _analysis(
     location="Berlin",
     remote=True,
     budget=None,
+    task_summary="Build a Telegram bot",
 ) -> OpportunityAnalysis:
     return OpportunityAnalysis.model_validate_json(
         json.dumps(
@@ -553,7 +593,7 @@ def _analysis(
                 "category": category,
                 "role_title": role_title,
                 "skills": skills,
-                "task_summary": "Build a Telegram bot",
+                "task_summary": task_summary,
                 "budget": budget or _budget(known=False, explicit=False),
                 "work": {
                     "remote": remote,
