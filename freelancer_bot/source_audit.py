@@ -25,6 +25,7 @@ from .persistence.source_audits import (
 from .persistence.source_metrics import SourceHealthStatus, SourceMetricsRepository
 from .persistence.source_repository import SourceRecord, SourceRepository, SourceStatus
 from .openai_compat import add_sampling_parameter
+from .llm_backoff import shared_backoff
 from .source_audit_sampler import SourceAuditSample, SourceAuditSampler, SourceAuditTarget
 from .source_ai_config import (
     OPENAI_CHAT_COMPLETIONS_URL,
@@ -295,6 +296,7 @@ class OpenAICompatibleSourceAuditProvider:
         raise AssertionError("unreachable")
 
     def _request(self, payload: Mapping[str, Any]) -> str:
+        shared_backoff.wait()
         request = urllib.request.Request(
             self._base_url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -312,6 +314,8 @@ class OpenAICompatibleSourceAuditProvider:
                 return response.read().decode("utf-8")
         except (urllib.error.HTTPError, urllib.error.URLError) as exc:
             if isinstance(exc, urllib.error.HTTPError):
+                if int(exc.code) == 429:
+                    shared_backoff.note_rate_limit(exc.headers)
                 exc.close()
             raise SourceAuditError(
                 f"{self._provider} source-audit request failed"

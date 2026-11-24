@@ -32,6 +32,7 @@ from .ai_telemetry import (
     AIModelPrice,
 )
 from .openai_compat import add_sampling_parameter
+from .llm_backoff import shared_backoff
 
 if TYPE_CHECKING:
     from .config import RuntimeConfig
@@ -627,6 +628,7 @@ class OpenAICompatibleOpportunityAnalyzer:
         )
 
     def _request(self, payload: Mapping[str, Any]) -> str:
+        shared_backoff.wait()
         request = urllib.request.Request(
             self._base_url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -645,6 +647,8 @@ class OpenAICompatibleOpportunityAnalyzer:
         except urllib.error.HTTPError as exc:
             status = int(exc.code)
             retryable = status == 429 or status >= 500
+            if status == 429:
+                shared_backoff.note_rate_limit(exc.headers)
             exc.close()
             raise OpportunityAnalysisError(
                 f"{self.provider} opportunity-analysis request failed",

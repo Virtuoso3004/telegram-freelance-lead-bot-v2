@@ -29,6 +29,7 @@ from telethon import types as telethon_types
 from telethon import utils as telethon_utils
 
 from .config import RuntimeConfig
+from .llm_backoff import shared_backoff
 from .observability import log_event
 from .persistence.database import Database
 from .persistence.jobs import DurableJobRepository, JobClaim
@@ -314,6 +315,7 @@ class OpenAICompatibleTelegramChatScreenProvider:
         ) from last_error
 
     def _request(self, payload: Mapping[str, Any]) -> str:
+        shared_backoff.wait()
         request = urllib.request.Request(
             self._base_url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -335,6 +337,8 @@ class OpenAICompatibleTelegramChatScreenProvider:
                 f"{self.name} chat-screen request timed out"
             ) from exc
         except urllib.error.HTTPError as exc:
+            if int(exc.code) == 429:
+                shared_backoff.note_rate_limit(exc.headers)
             exc.close()
             raise TelegramChatScreenError(
                 f"{self.name} chat-screen request failed"
