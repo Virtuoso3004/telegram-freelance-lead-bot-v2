@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -200,6 +201,14 @@ class LeadBot:
             str(config.bot_session_path),
             config.api_id,
             _required_secret(config.api_hash, "TELEGRAM_API_HASH/API_HASH"),
+        )
+        # Some Telegram DCs currently answer ImportBotAuthorizationRequest with
+        # a generic RpcCallFailError.  DC1/DC3 authenticate reliably, so pin the
+        # bot session there unless an operator overrides it.
+        self.bot_client.session.set_dc(
+            int(os.environ.get("TELEGRAM_BOT_DC_ID", "1")),
+            os.environ.get("TELEGRAM_BOT_DC_IP", "149.154.175.50"),
+            443,
         )
         self.source_adapter = source_adapter or ApprovedTelegramSourceAdapter(
             self.database
