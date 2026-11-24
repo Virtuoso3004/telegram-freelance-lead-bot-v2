@@ -8,6 +8,7 @@ itself keeps running in the same process.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import subprocess
 import sys
@@ -59,6 +60,30 @@ def bootstrap_database() -> None:
         )
 
 
+def log_database_counts() -> None:
+    """Emit restored row counts so a deploy can be verified from Render logs."""
+    import psycopg
+
+    url = os.environ.get("DATABASE_URL", "").replace(
+        "postgresql+psycopg://", "postgresql://", 1
+    )
+    if not url:
+        return
+    tables = {
+        "sources": "sources",
+        "opportunities": "opportunities",
+        "personalized_deliveries": "personalized_deliveries",
+        "chat_discovery_peers": "telegram_chat_discovery_peers",
+        "restore_state": "render_data_restore_state",
+    }
+    with psycopg.connect(url, connect_timeout=10) as connection:
+        counts = {
+            name: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for name, table in tables.items()
+        }
+    print("render.db_counts " + json.dumps(counts, sort_keys=True), flush=True)
+
+
 def main() -> None:
     restore_user_session()
     serve_health()
@@ -66,6 +91,10 @@ def main() -> None:
     from .render_data_restore import restore_from_secret
 
     restore_from_secret(os.environ.get("DATABASE_URL", ""))
+    try:
+        log_database_counts()
+    except Exception as exc:  # diagnostics must never block bot startup
+        print(f"render.db_counts failed: {type(exc).__name__}", flush=True)
     from .app import cli
 
     sys.argv = ["freelancer_bot", "--run"]
