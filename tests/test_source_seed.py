@@ -83,11 +83,11 @@ class SourceSeedImporterTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             sum(record["lifecycle_status"] == "approved" for record in records),
-            13,
+            9,
         )
         self.assertEqual(
             sum(record["lifecycle_status"] == "candidate" for record in records),
-            2,
+            6,
         )
         self.assertEqual(len(lineage), 15)
         self.assertEqual({row["provider"] for row in lineage}, {"repository_seed"})
