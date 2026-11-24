@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from uuid import UUID
 
@@ -68,6 +69,16 @@ class DiscoveryCampaignPlanProcessor:
         if self._config is None:
             raise RuntimeError("Global Source Library worker requires RuntimeConfig")
         from .source_bootstrap import GlobalSourceLibraryService
+        from .web_provider_chain import web_discovery_readiness
+
+        if web_discovery_readiness(self._config)["state"] == "UNAVAILABLE":
+            # No web search backend is configured.  Leave the campaign planned
+            # for a later operator run instead of failing the durable job and
+            # producing unbounded retries.
+            logging.getLogger(__name__).warning(
+                "discovery.campaign.plan skipped: no web search backend configured"
+            )
+            return
 
         await GlobalSourceLibraryService(self._database, self._config).run_campaign(
             campaign_key,

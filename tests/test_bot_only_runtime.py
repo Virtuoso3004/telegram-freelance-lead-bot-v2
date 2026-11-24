@@ -54,6 +54,7 @@ class BotOnlyRuntimeTest(unittest.IsolatedAsyncioTestCase):
             bot_client = MagicMock()
             bot_client.start = AsyncMock()
             bot_client.disconnect = AsyncMock()
+            bot_client.run_until_disconnected = AsyncMock()
             with (
                 patch("freelancer_bot.app.Database", return_value=database),
                 patch("freelancer_bot.app.Storage"),

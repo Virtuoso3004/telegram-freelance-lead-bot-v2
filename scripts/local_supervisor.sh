@@ -6,7 +6,8 @@ DB_DIR="$ROOT/.local_db"
 LOG="$ROOT/local_runtime.log"
 LOCK="$ROOT/.local_supervisor.lock"
 UV=/root/.local/uv-0.12.2/uv
-PG_URL='postgresql://postgres:postgres@127.0.0.1:5432/postgres'
+PSQL=(psql -h 127.0.0.1 -p 5432 -U postgres -d postgres)
+export PGPASSWORD="${PGPASSWORD:-postgres}"
 
 # Keep the CPU awake while the screen is off. This does not survive a force
 # close of Termux or a reboot — it only prevents Android from suspending us.
@@ -38,7 +39,7 @@ wait_db() {
 }
 
 cleanup_runtime_state() {
-  psql "$PG_URL" -q -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL' || true
+  "${PSQL[@]}" -q -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL' || true
 UPDATE telegram_collector_operation_state
 SET status = 'ready',
     active_request_token = NULL,

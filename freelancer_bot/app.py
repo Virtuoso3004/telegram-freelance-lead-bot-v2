@@ -205,11 +205,13 @@ class LeadBot:
         # Some Telegram DCs currently answer ImportBotAuthorizationRequest with
         # a generic RpcCallFailError.  DC1/DC3 authenticate reliably, so pin the
         # bot session there unless an operator overrides it.
-        self.bot_client.session.set_dc(
-            int(os.environ.get("TELEGRAM_BOT_DC_ID", "1")),
-            os.environ.get("TELEGRAM_BOT_DC_IP", "149.154.175.50"),
-            443,
-        )
+        session = getattr(self.bot_client, "session", None)
+        if session is not None and hasattr(session, "set_dc"):
+            session.set_dc(
+                int(os.environ.get("TELEGRAM_BOT_DC_ID", "1")),
+                os.environ.get("TELEGRAM_BOT_DC_IP", "149.154.175.50"),
+                443,
+            )
         self.source_adapter = source_adapter or ApprovedTelegramSourceAdapter(
             self.database
         )

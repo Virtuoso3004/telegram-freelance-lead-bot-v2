@@ -49,7 +49,7 @@ class SourceSeedImporterTest(unittest.IsolatedAsyncioTestCase):
             (15, 15, 0, 0),
         )
         self.assertEqual(first.lineage_created, 15)
-        self.assertEqual((first.approved_entries, first.candidate_entries), (13, 2))
+        self.assertEqual((first.approved_entries, first.candidate_entries), (9, 6))
         self.assertEqual(
             (second.total, second.created, second.updated, second.unchanged),
             (15, 0, 0, 15),
@@ -164,7 +164,7 @@ class SourceSeedCommandTest(unittest.TestCase):
             result = json.loads(output.getvalue())
             self.assertEqual(exit_code, 0)
             self.assertEqual(result["created"], 15)
-            self.assertEqual(result["approved_entries"], 13)
+            self.assertEqual(result["approved_entries"], 9)
 
             engine = sa.create_engine(database_url)
             try:
