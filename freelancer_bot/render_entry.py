@@ -51,16 +51,21 @@ def serve_health() -> ThreadingHTTPServer:
 def bootstrap_database() -> None:
     """Render starts from an empty database every time a new DB is created."""
     subprocess.run(["alembic", "upgrade", "head"], check=True)
-    subprocess.run(
-        [sys.executable, "-m", "freelancer_bot.persistence.source_seed"],
-        check=True,
-    )
+    # A restored dump already contains the seeded sources.
+    if not Path("/etc/secrets/db_dump.b64").exists():
+        subprocess.run(
+            [sys.executable, "-m", "freelancer_bot.persistence.source_seed"],
+            check=True,
+        )
 
 
 def main() -> None:
     restore_user_session()
     serve_health()
     bootstrap_database()
+    from .render_data_restore import restore_from_secret
+
+    restore_from_secret(os.environ.get("DATABASE_URL", ""))
     from .app import cli
 
     sys.argv = ["freelancer_bot", "--run"]

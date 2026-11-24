@@ -117,7 +117,9 @@ def main() -> int:
     database_id = database["id"]
 
     for _ in range(40):
-        current = request("GET", f"/postgres/{database_id}", key).get("postgres", {})
+        current = request("GET", f"/postgres/{database_id}", key)
+        if isinstance(current, dict):
+            current = current.get("postgres", current)
         if current.get("status") == "available":
             break
         time.sleep(3)
@@ -132,7 +134,8 @@ def main() -> int:
     if not external:
         print("No external Postgres connection string returned", file=sys.stderr)
         return 1
-    database_url = external.replace("postgres://", "postgresql+psycopg://", 1)
+    database_url = external.replace("postgresql://", "postgresql+psycopg://", 1)
+    database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
 
     env_values = local_env()
     # Never hand deployment credentials to the service itself.
@@ -168,7 +171,9 @@ def main() -> int:
                 },
                 "envVars": env_vars,
             },
-        ).get("service", {})
+        )
+        if isinstance(service, dict):
+            service = service.get("service", service)
     else:
         request(
             "PUT",
