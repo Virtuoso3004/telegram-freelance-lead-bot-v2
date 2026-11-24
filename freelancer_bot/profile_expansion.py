@@ -12,8 +12,11 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import psycopg
+
+PROFILE_REMATCH_JOB_TYPE = "profile.rematch_recent.v1"
 
 ROLE_ADDITIONS = (
     "AI-кодинг инженер",
@@ -135,29 +138,43 @@ def apply_profile_expansion(database_url: str) -> None:
         new_skills, added_skills = _merge_terms(skills, additions["skills"])
         new_categories, added_categories = _merge_terms(categories, additions["categories"])
         added = added_roles + added_skills + added_categories
-        if not added:
-            return
-        original_text = str(original or "")
-        semantic_text = " | ".join([original_text, *added]).strip(" |")
-        normalized_text = re.sub(r"\s+", " ", semantic_text).strip()
-        connection.execute(
-            """UPDATE search_profiles
-               SET roles = %s, skills = %s, categories = %s,
-                   semantic_text_original = %s,
-                   semantic_text_normalized = %s,
-                   revision = revision + 1,
-                   updated_at = %s
-               WHERE id = %s""",
+        final_revision = int(revision)
+        if added:
+            original_text = str(original or "")
+            semantic_text = " | ".join([original_text, *added]).strip(" |")
+            normalized_text = re.sub(r"\s+", " ", semantic_text).strip()
+            connection.execute(
+                """UPDATE search_profiles
+                   SET roles = %s, skills = %s, categories = %s,
+                       semantic_text_original = %s,
+                       semantic_text_normalized = %s,
+                       revision = revision + 1,
+                       updated_at = %s
+                   WHERE id = %s""",
+                (
+                    json.dumps(new_roles, ensure_ascii=False),
+                    json.dumps(new_skills, ensure_ascii=False),
+                    json.dumps(new_categories, ensure_ascii=False),
+                    semantic_text,
+                    normalized_text,
+                    datetime.now(timezone.utc),
+                    profile_id,
+                ),
+            )
+            final_revision += 1
+        queued = connection.execute(
+            """INSERT INTO durable_jobs
+                   (id, job_type, idempotency_key, max_attempts, correlation_id)
+               VALUES (%s, %s, %s, 5, %s)
+               ON CONFLICT (job_type, idempotency_key) DO NOTHING
+               RETURNING id""",
             (
-                json.dumps(new_roles, ensure_ascii=False),
-                json.dumps(new_skills, ensure_ascii=False),
-                json.dumps(new_categories, ensure_ascii=False),
-                semantic_text,
-                normalized_text,
-                datetime.now(timezone.utc),
+                uuid4(),
+                PROFILE_REMATCH_JOB_TYPE,
+                f"profile:{profile_id}:revision:{final_revision}",
                 profile_id,
             ),
-        )
+        ).fetchone()
         connection.commit()
     print(
         "render.profile_expansion "
@@ -166,7 +183,8 @@ def apply_profile_expansion(database_url: str) -> None:
                 "roles": len(added_roles),
                 "skills": len(added_skills),
                 "categories": len(added_categories),
-                "revision": revision + 1,
+                "revision": final_revision,
+                "rematch_queued": queued is not None,
             },
             sort_keys=True,
         ),
