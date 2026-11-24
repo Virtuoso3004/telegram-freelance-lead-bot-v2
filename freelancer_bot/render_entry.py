@@ -145,6 +145,12 @@ def main() -> None:
         log_database_counts()
     except Exception as exc:  # diagnostics must never block bot startup
         print(f"render.db_counts failed: {type(exc).__name__}", flush=True)
+    try:
+        from .profile_expansion import apply_profile_expansion
+
+        apply_profile_expansion(os.environ.get("DATABASE_URL", ""))
+    except Exception as exc:  # profile enrichment must never block bot startup
+        print(f"render.profile_expansion_failed: {type(exc).__name__}", flush=True)
     from .app import cli
 
     sys.argv = ["freelancer_bot", "--run"]
