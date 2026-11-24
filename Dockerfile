@@ -9,7 +9,8 @@ ENV UV_LINK_MODE=copy \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev
+# pyproject.toml pins uv 0.12.2; the base image ships an older one.
+RUN uv self update 0.12.2 && uv sync --locked --no-dev
 
 COPY . .
 

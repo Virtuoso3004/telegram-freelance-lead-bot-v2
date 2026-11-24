@@ -15,6 +15,7 @@ import base64
 import csv
 import io
 import logging
+import lzma
 import os
 import tarfile
 from pathlib import Path
@@ -158,7 +159,7 @@ def restore_from_secret(database_url: str) -> bool:
             LOGGER.info("render.data_restore.skipped", extra={"reason": "already_restored"})
             return False
 
-        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as archive:
+        with tarfile.open(fileobj=io.BytesIO(lzma.decompress(raw)), mode="r:") as archive:
             members = {
                 Path(member.name).name: member
                 for member in archive.getmembers()
