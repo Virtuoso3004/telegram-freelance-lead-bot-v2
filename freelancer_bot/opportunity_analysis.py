@@ -824,7 +824,25 @@ class RoutedOpportunityAnalyzer:
         return frozenset({opportunity_analysis_cache_version(self._primary)})
 
     async def analyze(self, candidate: MinimalAnalyzerInput) -> OpportunityAnalysisCall:
-        primary = await self._primary.analyze(candidate)
+        try:
+            primary = await self._primary.analyze(candidate)
+        except OpportunityAnalysisError as error:
+            status = error.http_status
+            if (
+                self._fallback is None
+                or status is None
+                or not (status == 429 or status >= 500)
+            ):
+                raise
+            try:
+                emergency = await self._fallback.analyze(candidate)
+            except AIBudgetExceeded:
+                raise error from None
+            return replace(
+                emergency,
+                routing_version=self._routing_version,
+                route_reason="primary_rate_limited_fallback",
+            )
         if (
             self._fallback is None
             or primary.analysis.confidence >= self._confidence_threshold
