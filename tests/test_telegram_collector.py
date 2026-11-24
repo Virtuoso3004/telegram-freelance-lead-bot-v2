@@ -355,5 +355,43 @@ def _collector_source(source_id, handle):
     return TelegramCollectorSource(record=record, lookup=handle)
 
 
+class ExcludedSourceHandlesTest(unittest.TestCase):
+    def test_handles_are_normalized(self):
+        from freelancer_bot.app import _excluded_source_handles
+
+        config = SimpleNamespace(
+            telegram_excluded_source_handles="@WebProgrammists, @other_chat ,"
+        )
+        self.assertEqual(
+            _excluded_source_handles(config),
+            frozenset({"webprogrammists", "other_chat"}),
+        )
+
+    def test_exclusion_applies_to_collector_and_legacy_sources(self):
+        from freelancer_bot.app import _source_is_excluded
+        from freelancer_bot.sources import Source
+
+        config = SimpleNamespace(
+            telegram_excluded_source_handles="@webprogrammists"
+        )
+        self.assertTrue(
+            _source_is_excluded(_collector_source(19, "@webprogrammists"), config)
+        )
+        self.assertTrue(
+            _source_is_excluded(
+                Source(
+                    handle="@webprogrammists",
+                    title="w",
+                    reason="w",
+                    enabled=True,
+                ),
+                config,
+            )
+        )
+        self.assertFalse(
+            _source_is_excluded(_collector_source(3, "@digitaltender"), config)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

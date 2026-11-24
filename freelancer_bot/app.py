@@ -1177,6 +1177,15 @@ class LeadBot:
         registered_keys = getattr(self, "_registered_source_keys", set())
         governor = getattr(self, "_telegram_governor", None)
         for source in self.sources:
+            if _source_is_excluded(source, getattr(self, "config", None)):
+                log_event(
+                    LOGGER,
+                    logging.INFO,
+                    "telegram.collector.source_excluded",
+                    source_id=_collector_source_id(source),
+                    handle=_source_lookup(source),
+                )
+                continue
             try:
                 async def resolve_source() -> object:
                     return await self.user_client.get_entity(_source_lookup(source))
@@ -1302,6 +1311,8 @@ class LeadBot:
         *,
         origin: str,
     ) -> None:
+        if _source_is_excluded(source, getattr(self, "config", None)):
+            return
         correlation_id = new_correlation_id()
         with trace_context(correlation_id):
             log_event(
@@ -1869,6 +1880,25 @@ def _required_secret(value: SecretStr | None, name: str) -> str:
 
 def _source_lookup(source: TelegramCollectorSource | Source) -> str:
     return source.lookup if isinstance(source, TelegramCollectorSource) else source.handle
+
+
+def _excluded_source_handles(config) -> frozenset[str]:
+    if config is None:
+        return frozenset()
+    value = getattr(config, "telegram_excluded_source_handles", "")
+    return frozenset(
+        item.strip().removeprefix("@").casefold()
+        for item in value.split(",")
+        if item.strip()
+    )
+
+
+def _source_is_excluded(source: TelegramCollectorSource | Source, config) -> bool:
+    handle = _source_lookup(source)
+    return bool(
+        handle
+        and handle.removeprefix("@").casefold() in _excluded_source_handles(config)
+    )
 
 
 def _collector_source_id(source: TelegramCollectorSource | Source) -> int | None:

@@ -770,6 +770,12 @@ class RuntimeConfig(BaseSettings):
         ge=0,
         le=1800,
     )
+    telegram_excluded_source_handles: str = classified_field(
+        "",
+        sensitivity=Sensitivity.INTERNAL,
+        validation_alias="TELEGRAM_EXCLUDED_SOURCE_HANDLES",
+        max_length=1024,
+    )
     telegram_max_history_messages_per_pass: int = classified_field(
         25,
         sensitivity=Sensitivity.INTERNAL,
