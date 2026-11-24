@@ -21,6 +21,13 @@ def _default_cooldown() -> float:
         return 30.0
 
 
+def _default_min_interval() -> float:
+    try:
+        return max(0.0, float(os.environ.get("TOKENROUTER_MIN_INTERVAL_SECONDS", "0")))
+    except ValueError:
+        return 0.0
+
+
 def bearer_headers(model: str, api_key: str) -> dict[str, str]:
     """Return auth headers only for models that are not anonymously free.
 
@@ -35,17 +42,36 @@ def bearer_headers(model: str, api_key: str) -> dict[str, str]:
 
 
 class TokenRouterBackoff:
-    def __init__(self, cooldown_seconds: float | None = None) -> None:
+    def __init__(
+        self,
+        cooldown_seconds: float | None = None,
+        min_interval_seconds: float | None = None,
+    ) -> None:
         self._cooldown = cooldown_seconds if cooldown_seconds is not None else _default_cooldown()
+        self._min_interval = (
+            min_interval_seconds
+            if min_interval_seconds is not None
+            else _default_min_interval()
+        )
         self._lock = threading.Lock()
         self._paused_until = 0.0
+        self._last_request = 0.0
 
     def wait(self) -> None:
-        """Block while a previous 429 cooldown is still active."""
+        """Serialize requests and honor an active 429 cooldown.
+
+        The lock is held through the sleep so concurrent workers cannot all
+        wake up and issue a burst at the same instant.
+        """
         with self._lock:
-            remaining = self._paused_until - time.monotonic()
-        if remaining > 0:
-            time.sleep(remaining)
+            now = time.monotonic()
+            delay = max(
+                self._paused_until - now,
+                self._last_request + self._min_interval - now,
+            )
+            if delay > 0:
+                time.sleep(delay)
+            self._last_request = time.monotonic()
 
     def note_rate_limit(self, headers: Any = None) -> None:
         """Extend the shared cooldown after a 429 response."""
