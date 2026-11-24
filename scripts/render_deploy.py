@@ -127,6 +127,9 @@ def main() -> int:
     database_url = external.replace("postgres://", "postgresql+psycopg://", 1)
 
     env_values = local_env()
+    # Never hand deployment credentials to the service itself.
+    for name in ("RENDER_API_KEY", "RENDER_OWNER_ID", "GITHUB_TOKEN"):
+        env_values.pop(name, None)
     env_values.pop("DATABASE_URL", None)
     env_values["DATABASE_URL"] = database_url
     encoded_session = session_b64()
