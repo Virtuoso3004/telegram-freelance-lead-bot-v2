@@ -25,7 +25,7 @@ from .persistence.source_audits import (
 from .persistence.source_metrics import SourceHealthStatus, SourceMetricsRepository
 from .persistence.source_repository import SourceRecord, SourceRepository, SourceStatus
 from .openai_compat import add_sampling_parameter
-from .llm_backoff import shared_backoff
+from .llm_backoff import bearer_headers, shared_backoff
 from .source_audit_sampler import SourceAuditSample, SourceAuditSampler, SourceAuditTarget
 from .source_ai_config import (
     OPENAI_CHAT_COMPLETIONS_URL,
@@ -301,8 +301,8 @@ class OpenAICompatibleSourceAuditProvider:
             self._base_url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
+                **bearer_headers(self._model, self._api_key),
             },
             method="POST",
         )

@@ -21,6 +21,19 @@ def _default_cooldown() -> float:
         return 30.0
 
 
+def bearer_headers(model: str, api_key: str) -> dict[str, str]:
+    """Return auth headers only for models that are not anonymously free.
+
+    Kilo Gateway serves ``*:free`` models without authentication.  Sending an
+    old or placeholder bearer token to those models returns 401, so the header
+    must be omitted entirely.
+    """
+
+    if model.strip().endswith(":free"):
+        return {}
+    return {"Authorization": f"Bearer {api_key}"}
+
+
 class TokenRouterBackoff:
     def __init__(self, cooldown_seconds: float | None = None) -> None:
         self._cooldown = cooldown_seconds if cooldown_seconds is not None else _default_cooldown()

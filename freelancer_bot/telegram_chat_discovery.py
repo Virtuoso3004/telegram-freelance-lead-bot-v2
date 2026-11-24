@@ -29,7 +29,7 @@ from telethon import types as telethon_types
 from telethon import utils as telethon_utils
 
 from .config import RuntimeConfig
-from .llm_backoff import shared_backoff
+from .llm_backoff import bearer_headers, shared_backoff
 from .observability import log_event
 from .persistence.database import Database
 from .persistence.jobs import DurableJobRepository, JobClaim
@@ -320,8 +320,8 @@ class OpenAICompatibleTelegramChatScreenProvider:
             self._base_url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
+                **bearer_headers(self.model, self._api_key),
             },
             method="POST",
         )

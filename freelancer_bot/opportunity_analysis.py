@@ -32,7 +32,7 @@ from .ai_telemetry import (
     AIModelPrice,
 )
 from .openai_compat import add_sampling_parameter
-from .llm_backoff import shared_backoff
+from .llm_backoff import bearer_headers, shared_backoff
 
 if TYPE_CHECKING:
     from .config import RuntimeConfig
@@ -633,8 +633,8 @@ class OpenAICompatibleOpportunityAnalyzer:
             self._base_url,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
+                **bearer_headers(self._model, self._api_key),
             },
             method="POST",
         )
