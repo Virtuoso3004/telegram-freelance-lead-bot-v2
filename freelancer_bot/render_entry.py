@@ -13,6 +13,8 @@ import os
 import subprocess
 import sys
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -47,6 +49,40 @@ def serve_health() -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(("0.0.0.0", port), _HealthHandler)
     threading.Thread(target=server.serve_forever, name="render-health", daemon=True).start()
     return server
+
+
+def keep_service_awake() -> None:
+    """Ping our own public health URL so the free instance never spins down.
+
+    Render considers any inbound HTTP request activity, including one that the
+    service makes to its own public domain. External schedulers are unreliable,
+    so the running process keeps itself warm instead.
+    """
+    url = (
+        os.environ.get("RENDER_EXTERNAL_URL", "https://vkparsingbot.onrender.com")
+        .rstrip("/")
+        + "/health"
+    )
+    try:
+        interval = max(60.0, float(os.environ.get("RENDER_SELF_PING_INTERVAL_SECONDS", "300")))
+    except ValueError:
+        interval = 300.0
+    delay = threading.Event()
+
+    def loop() -> None:
+        while not delay.wait(interval):
+            try:
+                with urllib.request.urlopen(url, timeout=20) as response:
+                    status = response.status
+                    response.read(64)
+                print(f"render.self_ping status={status}", flush=True)
+            except urllib.error.HTTPError as exc:
+                print(f"render.self_ping_failed http={exc.code}", flush=True)
+            except Exception as exc:  # a failed ping must never stop the bot
+                print(f"render.self_ping_failed {type(exc).__name__}", flush=True)
+
+    threading.Thread(target=loop, name="render-self-ping", daemon=True).start()
+    print(f"render.self_ping_started interval={interval:g}", flush=True)
 
 
 def bootstrap_database() -> None:
@@ -100,6 +136,7 @@ def log_database_counts() -> None:
 def main() -> None:
     restore_user_session()
     serve_health()
+    keep_service_awake()
     bootstrap_database()
     from .render_data_restore import restore_from_secret
 
