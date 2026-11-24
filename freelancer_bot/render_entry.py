@@ -81,7 +81,20 @@ def log_database_counts() -> None:
             name: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
             for name, table in tables.items()
         }
+        cursor = connection.execute(
+            """SELECT decision_code, hard_filter_reasons, combined_relevance_score,
+                      final_rank_score, minimum_relevance_threshold,
+                      minimum_rank_score_threshold
+               FROM match_traces ORDER BY evaluated_at DESC LIMIT 5"""
+        )
+        columns = [column.name for column in cursor.description]
+        traces = [dict(zip(columns, row)) for row in cursor.fetchall()]
     print("render.db_counts " + json.dumps(counts, sort_keys=True), flush=True)
+    for row in traces:
+        print(
+            "render.match_trace " + json.dumps(row, default=str, sort_keys=True),
+            flush=True,
+        )
 
 
 def main() -> None:
