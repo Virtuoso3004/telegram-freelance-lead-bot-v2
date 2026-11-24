@@ -27,6 +27,7 @@ from .persistence.opportunities import (
     CanonicalOpportunityRepository,
     OpportunityNotFound,
 )
+from .persistence.raw_messages import RawMessageRepository
 from .persistence.search_profiles import SearchProfileRepository, UserRepository
 
 
@@ -90,6 +91,7 @@ class PersonalizedDeliveryService:
         profiles: SearchProfileRepository | None = None,
         users: UserRepository | None = None,
         opportunities: CanonicalOpportunityRepository | None = None,
+        raw_messages: RawMessageRepository | None = None,
         deliveries: PersonalizedDeliveryRepository | None = None,
         jobs: DurableJobRepository | None = None,
         entitlement_checker: EntitlementChecker | None = None,
@@ -101,6 +103,7 @@ class PersonalizedDeliveryService:
         self._profiles = profiles or SearchProfileRepository()
         self._users = users or UserRepository()
         self._opportunities = opportunities or CanonicalOpportunityRepository()
+        self._raw_messages = raw_messages or RawMessageRepository()
         self._entitlements = entitlement_checker or TrialEntitlementChecker()
         self._deliveries = deliveries or PersonalizedDeliveryRepository(
             entitlement_checker=self._entitlements,
@@ -171,6 +174,15 @@ class PersonalizedDeliveryService:
                 raise OpportunityNotFound(
                     f"Opportunity {match.trace.opportunity_id} does not exist"
                 )
+            source_text: str | None = None
+            for raw_message_id in opportunity.raw_message_ids[:1]:
+                raw_message = await self._raw_messages.get_by_id(
+                    connection,
+                    raw_message_id,
+                )
+                if raw_message is not None:
+                    source_text = raw_message.content
+                    break
             if (
                 not profile.is_active
                 or not profile.is_primary
@@ -186,6 +198,7 @@ class PersonalizedDeliveryService:
                 opportunity,
                 match,
                 rendered_at=rendered_at,
+                source_text=source_text,
             )
             outcome = await self._deliveries.ensure(
                 connection,

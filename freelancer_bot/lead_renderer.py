@@ -51,6 +51,42 @@ _BUDGET_PERIOD_LABELS = {
     "month": "/мес.",
     "year": "/год",
 }
+_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
+_RUSSIAN_TITLES = {
+    "telegram bot developer": "разработчик Telegram-бота",
+    "web developer": "веб-разработчик",
+    "fullstack developer": "Fullstack-разработчик",
+    "full-stack developer": "Fullstack-разработчик",
+    "frontend developer": "фронтенд-разработчик",
+    "backend developer": "бэкенд-разработчик",
+    "software developer": "разработчик ПО",
+    "mobile developer": "разработчик мобильных приложений",
+    "data scientist": "специалист по данным",
+    "data engineer": "инженер данных",
+    "devops engineer": "DevOps-инженер",
+    "project manager": "проектный менеджер",
+    "product manager": "продуктовый менеджер",
+    "ui/ux designer": "UI/UX-дизайнер",
+    "web designer": "веб-дизайнер",
+    "designer": "дизайнер",
+    "video editor": "видеомонтажёр",
+    "content editor": "контент-редактор",
+    "copywriter": "копирайтер",
+    "marketing specialist": "маркетолог",
+    "seo specialist": "SEO-специалист",
+    "smm specialist": "SMM-специалист",
+    "consultant": "консультант",
+    "specialist": "специалист",
+}
+_RUSSIAN_SKILLS = {
+    "website": "сайт",
+    "web development": "веб-разработка",
+    "software development": "разработка ПО",
+    "video editing": "видеомонтаж",
+    "digital marketing": "digital-маркетинг",
+    "marketing": "маркетинг",
+    "telegram bot development": "разработка Telegram-бота",
+}
 
 
 class LeadCardRenderError(ValueError):
@@ -85,18 +121,23 @@ def render_telegram_lead_card(
     match: MatchTraceRecord,
     *,
     rendered_at: datetime,
+    source_text: str | None = None,
 ) -> TelegramLeadCard:
     rendered_at = _aware_utc(rendered_at, "rendered_at")
     trace = match.trace
     _validate_render_input(opportunity, match)
 
-    title = _lead_title(opportunity)
+    russian_source = _is_russian(source_text)
+    title = _lead_title(opportunity, russian_source=russian_source)
     metadata = _lead_metadata(opportunity)
-    summary = _clean_text(
-        opportunity.task_summary or opportunity.analysis.task_summary,
-        limit=_SUMMARY_LIMIT,
+    summary = _summary_text(
+        opportunity,
+        source_text=source_text if russian_source else None,
     )
-    skills = _skills_line(opportunity.analysis.skills)
+    skills = _skills_line(
+        opportunity.analysis.skills,
+        russian_source=russian_source,
+    )
     source_url = _safe_source_url(opportunity)
     footer = _footer(
         source_url=source_url,
@@ -147,12 +188,40 @@ def _validate_render_input(
         raise LeadCardRenderError("match trace does not describe the current Opportunity")
 
 
-def _lead_title(opportunity: CanonicalOpportunityRecord) -> str:
+def _is_russian(value: str | None) -> bool:
+    return bool(value and _CYRILLIC.search(value))
+
+
+def _summary_text(
+    opportunity: CanonicalOpportunityRecord,
+    *,
+    source_text: str | None,
+) -> str | None:
+    if source_text:
+        original = _clean_text(source_text, limit=_SUMMARY_LIMIT)
+        if original:
+            return original
+    return _clean_text(
+        opportunity.task_summary or opportunity.analysis.task_summary,
+        limit=_SUMMARY_LIMIT,
+    )
+
+
+def _lead_title(
+    opportunity: CanonicalOpportunityRecord,
+    *,
+    russian_source: bool = False,
+) -> str:
     explicit = _clean_text(
         opportunity.canonical_title or opportunity.analysis.role_title,
         limit=_TITLE_LIMIT,
     )
     if explicit:
+        if russian_source and not _CYRILLIC.search(explicit):
+            translated = _RUSSIAN_TITLES.get(explicit.strip().casefold())
+            if translated:
+                return translated
+            return _DEFAULT_TITLES[opportunity.analysis.opportunity_type]
         return explicit
     return _DEFAULT_TITLES[opportunity.analysis.opportunity_type]
 
@@ -232,7 +301,11 @@ def _decimal_label(value: Decimal) -> str:
     return grouped if not separator else f"{grouped},{fraction.rstrip('0')}"
 
 
-def _skills_line(skills: tuple[str, ...]) -> str | None:
+def _skills_line(
+    skills: tuple[str, ...],
+    *,
+    russian_source: bool = False,
+) -> str | None:
     normalized = _deduplicate(
         item
         for item in (
@@ -241,6 +314,10 @@ def _skills_line(skills: tuple[str, ...]) -> str | None:
         )
         if item
     )
+    if russian_source:
+        normalized = _deduplicate(
+            _RUSSIAN_SKILLS.get(item.casefold(), item) for item in normalized
+        )
     if not normalized:
         return None
     return ", ".join(normalized[:_SKILL_LIMIT])

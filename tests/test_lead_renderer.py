@@ -85,6 +85,29 @@ class TelegramLeadRendererTest(unittest.TestCase):
         self.assertNotIn("confidence", card.body_html)
         self.assertNotIn("schema", card.body_html)
 
+    def test_russian_source_overrides_english_analysis_labels(self):
+        opportunity = _opportunity(
+            title="Web Developer",
+            role_title="Web Developer",
+            summary="Build a website with Tilda.",
+            skills=("Website", "Tilda"),
+            opportunity_type="one_off_order",
+        )
+        match = _eligible_match(opportunity)
+
+        card = render_telegram_lead_card(
+            opportunity,
+            match,
+            rendered_at=NOW,
+            source_text="Нужен сайт на Tilda с каталогом товаров.",
+        )
+
+        self.assertIn("<b>веб-разработчик</b>", card.body_html)
+        self.assertIn("Нужен сайт на Tilda с каталогом товаров.", card.body_html)
+        self.assertIn("сайт, Tilda", card.body_html)
+        self.assertNotIn("Web Developer", card.body_html)
+        self.assertNotIn("Build a website", card.body_html)
+
     def test_unknown_fields_are_omitted_without_placeholders(self):
         opportunity = _opportunity(
             title="Нужен специалист по автоматизации",

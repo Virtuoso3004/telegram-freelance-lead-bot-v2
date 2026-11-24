@@ -1202,7 +1202,7 @@ class RoutedDegradedAnalysisTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.route_reason, "heuristic_fallback")
         self.assertTrue(result.analysis.is_opportunity)
-        self.assertEqual(result.analysis.category, "Telegram bot development")
+        self.assertEqual(result.analysis.category, "разработка Telegram-бота")
         self.assertEqual(result.usage.total_tokens, 0)
 
     async def test_heuristic_route_rejects_self_promotion(self):

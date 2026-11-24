@@ -550,8 +550,15 @@ class OpenAICompatibleOpportunityAnalyzer:
                         "Put concise evidence-based scam, spam or credibility concerns in "
                         "red_flags without changing them for any user's preferences. "
                         "Use current as primary and only the supplied direct parent for "
-                        "disambiguation; never assume other chat history exists. Never invent "
-                        "unknown details; return null, empty lists or unknown as allowed."
+                        "disambiguation; never assume other chat history exists. "
+                        "When the current message is in Russian, write category, "
+                        "role_title, task_summary and red_flags in Russian; keep "
+                        "technology names, brand names and standard terms such as "
+                        "Python, API, SEO, Tilda or Telegram unchanged. For messages "
+                        "in another language, mirror that language. Set language to "
+                        "the ISO 639-1 code of the message, for example ru or en. "
+                        "Never invent unknown details; return null, empty lists or "
+                        "unknown as allowed."
                     ),
                 },
                 {
@@ -794,38 +801,38 @@ class HeuristicOpportunityAnalyzer:
     _DOMAIN_RULES = (
         (
             ("telegram", "бот", "bot"),
-            "Telegram bot development",
-            "Telegram Bot Developer",
+            "разработка Telegram-бота",
+            "разработчик Telegram-бота",
             ("Telegram Bot API",),
         ),
         (
             ("сайт", "лендинг", "website", "landing", "wordpress", "tilda"),
-            "web development",
-            "Web Developer",
+            "веб-разработка",
+            "веб-разработчик",
             ("Website",),
         ),
         (
             ("дизайн", "figma", "ui/ux", "design"),
-            "web design",
-            "UI/UX Designer",
+            "веб-дизайн",
+            "UI/UX-дизайнер",
             ("Figma",),
         ),
         (
             ("seo", "смм", "smm", "реклам", "маркетинг", "target"),
-            "digital marketing",
-            "Marketing Specialist",
+            "digital-маркетинг",
+            "маркетолог",
             ("Marketing",),
         ),
         (
             ("видео", "reels", "montage", "монтаж"),
-            "video editing",
-            "Video Editor",
+            "видеомонтаж",
+            "видеомонтажёр",
             ("Video Editing",),
         ),
         (
             ("python", "api", "интеграц", "автоматизац", "backend"),
-            "software development",
-            "Software Developer",
+            "разработка ПО",
+            "разработчик ПО",
             ("Python",),
         ),
     )
@@ -871,8 +878,8 @@ class HeuristicOpportunityAnalyzer:
         self_promo = any(marker in lowered for marker in self._SELF_PROMO_MARKERS)
         buyer = any(marker in lowered for marker in self._BUYER_MARKERS)
         is_opportunity = buyer and not self_promo
-        category = "other"
-        role_title = "specialist"
+        category = "разное"
+        role_title = "специалист"
         skills: tuple[str, ...] = ()
         for keywords, rule_category, rule_role, rule_skills in self._DOMAIN_RULES:
             if any(keyword in lowered for keyword in keywords):
