@@ -341,6 +341,32 @@ class CandidateMatchingService:
             opportunity_analyzer_calls=report.opportunity_analyzer_calls,
             elapsed_seconds=round(report.elapsed_seconds, 6),
         )
+        for record in persistence.traces[:5]:
+            trace = record.trace
+            decision = trace.decision_code
+            log_event(
+                self._logger,
+                logging.INFO,
+                "matching.trace_diagnostic",
+                decision_code=(
+                    decision.value if hasattr(decision, "value") else str(decision)
+                ),
+                hard_filter_codes=tuple(
+                    str(reason.get("code", "unknown"))
+                    for reason in trace.hard_filter_reasons
+                ),
+                combined_relevance_score=(
+                    str(trace.combined_relevance_score)
+                    if trace.combined_relevance_score is not None
+                    else None
+                ),
+                final_rank_score=(
+                    str(trace.final_rank_score)
+                    if trace.final_rank_score is not None
+                    else None
+                ),
+                semantic_status=trace.semantic_status,
+            )
 
 
 def _generation_report(
