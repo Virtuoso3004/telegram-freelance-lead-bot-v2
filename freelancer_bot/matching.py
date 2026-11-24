@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
+import os
 import re
 import unicodedata
 from uuid import UUID
@@ -32,7 +33,7 @@ from .search_profiles import (
 )
 
 
-MATCHING_FILTER_VERSION = "matching-hard-filters.v4"
+MATCHING_FILTER_VERSION = "matching-hard-filters.v5"
 STRUCTURED_SCORING_VERSION = "structured-matching-score.v4"
 STRUCTURED_SCORING_POLICY_VERSION = "structured-matching-policy.v4"
 _VERSION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,99}$")
@@ -374,6 +375,11 @@ def narrow_and_filter_candidates(
     if opportunity.lifecycle_status is OpportunityLifecycleStatus.ACTIVE:
         for profile in active_profiles:
             exclusion = _candidate_exclusion(opportunity.analysis, profile)
+            if (
+                exclusion is CandidateExclusionCode.NO_STRUCTURED_TARGET_OVERLAP
+                and _allow_unknown_target_overlap()
+            ):
+                exclusion = None
             if exclusion is None:
                 candidate_profiles.append(profile)
             else:
@@ -783,6 +789,13 @@ def _clamp(value: Decimal) -> Decimal:
 
 def _quantize(value: Decimal) -> Decimal:
     return value.quantize(_SCORE_QUANTUM)
+
+
+def _allow_unknown_target_overlap() -> bool:
+    """Treat missing structured target overlap as advisory, not a hard block."""
+    return os.environ.get(
+        "MATCHING_ALLOW_UNKNOWN_TARGET_OVERLAP", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _candidate_exclusion(
