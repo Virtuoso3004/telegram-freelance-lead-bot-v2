@@ -8,9 +8,11 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
 # pyproject.toml pins uv 0.12.2; the base image ships an older one.
-RUN uv self update 0.12.2 && uv sync --locked --no-dev
+COPY --from=ghcr.io/astral-sh/uv:0.12.2 /uv /usr/local/bin/uv
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev
 
 COPY . .
 
